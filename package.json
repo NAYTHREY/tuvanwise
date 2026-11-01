@@ -1,0 +1,34 @@
+{
+  "name": "tu-vanwise",
+  "version": "1.0.0",
+  "private": true,
+  "description": "TU vanwise — ต้นแบบระบบคาดการณ์เวลารถตู้ออก สายธรรมศาสตร์ รังสิต – ฟิวเจอร์พาร์ค (TSE100 กลุ่ม 25)",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "npx serve out",
+    "lint": "tsc --noEmit",
+    "test": "node --experimental-strip-types --test tests/*.test.ts",
+    "model": "python3 scripts/build_model.py data/TSE100_main.xlsx src/data/model.json"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.118.0",
+    "leaflet": "^1.9.4",
+    "next": "^15.5.28",
+    "qrcode": "^1.5.4",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "react-leaflet": "^5.0.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.1.13",
+    "@types/leaflet": "^1.9.20",
+    "@types/node": "^22.18.6",
+    "@types/qrcode": "^1.5.5",
+    "@types/react": "^19.1.13",
+    "@types/react-dom": "^19.1.9",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^4.1.13",
+    "typescript": "^5.9.3"
+  }
+}

@@ -1,0 +1,213 @@
+@import "tailwindcss";
+
+/* สีของ TU vanwise: แดง-เหลืองธรรมศาสตร์ บนพื้นเทาแบบถนน และป้ายบอกเวลาสีเข้มแบบท่ารถ */
+:root {
+  --bg: #eceef1;
+  --surface: #ffffff;
+  --surface-2: #f5f6f8;
+  --ink: #1b1f26;
+  --ink-2: #4a5160;
+  --ink-3: #6b7280;
+  --line: #d9dde3;
+  --red: #b5121b;
+  --red-soft: #fbe9ea;
+  --gold: #f2b705;
+  --gold-ink: #6b4f00;
+  --board: #22262d;
+  --board-ink: #f2b705;
+  --board-dim: #9aa1ad;
+  --seat-empty: #e3e6eb;
+  --ok: #1e7a46;
+  --warn: #a15c00;
+  --series-a: #b5121b;
+  --series-b: #3b78c2;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #111317;
+    --surface: #1a1d23;
+    --surface-2: #22262d;
+    --ink: #eef0f3;
+    --ink-2: #b9bfca;
+    --ink-3: #8d94a1;
+    --line: #2f343d;
+    --red: #e8464c;
+    --red-soft: #3a1c1e;
+    --gold: #f2b705;
+    --gold-ink: #f6d064;
+    --board: #0c0e11;
+    --board-ink: #f2b705;
+    --board-dim: #8d94a1;
+    --seat-empty: #2f343d;
+    --ok: #4cc283;
+    --warn: #f0a640;
+    --series-a: #e8464c;
+    --series-b: #4c8fdb;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #111317;
+  --surface: #1a1d23;
+  --surface-2: #22262d;
+  --ink: #eef0f3;
+  --ink-2: #b9bfca;
+  --ink-3: #8d94a1;
+  --line: #2f343d;
+  --red: #e8464c;
+  --red-soft: #3a1c1e;
+  --gold: #f2b705;
+  --gold-ink: #f6d064;
+  --board: #0c0e11;
+  --board-ink: #f2b705;
+  --board-dim: #8d94a1;
+  --seat-empty: #2f343d;
+  --ok: #4cc283;
+  --warn: #f0a640;
+  --series-a: #e8464c;
+  --series-b: #4c8fdb;
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-line: var(--line);
+  --color-red: var(--red);
+  --color-red-soft: var(--red-soft);
+  --color-gold: var(--gold);
+  --color-gold-ink: var(--gold-ink);
+  --color-board: var(--board);
+  --color-board-ink: var(--board-ink);
+  --color-board-dim: var(--board-dim);
+  --color-ok: var(--ok);
+  --color-warn: var(--warn);
+  --font-sans: "IBM Plex Sans Thai", "Noto Sans Thai", system-ui, sans-serif;
+  --font-display: "Chakra Petch", "IBM Plex Sans Thai", system-ui, sans-serif;
+}
+
+html {
+  background: var(--bg);
+}
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+.font-display {
+  font-family: var(--font-display);
+}
+.tnum {
+  font-variant-numeric: tabular-nums;
+}
+
+:focus-visible {
+  outline: 3px solid var(--gold);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* ให้ลูกของ grid หดได้ ตารางกว้างจะเลื่อนในกรอบของตัวเองแทนการดันหน้าจอ */
+.grid > * {
+  min-width: 0;
+}
+
+/* แผงหลัก */
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+}
+
+/* ป้ายบอกเวลาแบบท่ารถ: ไฟจุดแสดงตัวเลขที่เปลี่ยน */
+.board {
+  background: var(--board);
+  color: var(--board-ink);
+  border-radius: 14px;
+  background-image: radial-gradient(rgba(255, 255, 255, 0.045) 1px, transparent 1.2px);
+  background-size: 6px 6px;
+}
+.board-digits {
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 0 18px rgba(242, 183, 5, 0.25);
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  border-radius: 10px;
+  padding: 0.55rem 0.9rem;
+  font-weight: 600;
+  font-size: 0.95rem;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink);
+  transition: background 0.15s, border-color 0.15s;
+  min-height: 44px;
+}
+.btn:hover {
+  border-color: var(--ink-3);
+}
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.btn-primary {
+  background: var(--red);
+  border-color: var(--red);
+  color: #fff;
+}
+.btn-primary:hover {
+  border-color: var(--red);
+  filter: brightness(1.08);
+}
+.btn-quiet {
+  background: transparent;
+}
+
+input[type="time"],
+input[type="date"],
+select {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 0.5rem 0.7rem;
+  min-height: 44px;
+  color: var(--ink);
+  font: inherit;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .seat-fill {
+    animation: seat-pop 0.35s ease-out;
+  }
+  @keyframes seat-pop {
+    0% {
+      transform: scale(0.7);
+    }
+    70% {
+      transform: scale(1.08);
+    }
+    100% {
+      transform: scale(1);
+    }
+  }
+}
+
+.leaflet-container {
+  font-family: var(--font-sans);
+}
