@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { predict, planByArrival, planByTarget, dayTypeOf, type Model, type DayType } from "../src/lib/model.ts";
+import { predict, planByArrival, planByTarget, dayTypeOf, travelAt, travelFor, type Model, type DayType } from "../src/lib/model.ts";
 
 const model = JSON.parse(readFileSync(new URL("../src/data/model.json", import.meta.url), "utf8")) as Model;
 const cases = JSON.parse(readFileSync(new URL("./fixtures.json", import.meta.url), "utf8")) as {
@@ -38,17 +38,36 @@ test("คนบนรถมากขึ้น เวลารอไม่เพ�
 
 test("นอกเวลาให้บริการไม่ทำนาย", () => {
   assert.equal(predict(model, "wd", 3 * 60), null);
-  assert.equal(planByArrival(model, "wd", 22 * 60, { min: 20, max: 25 }).ok, false);
+  assert.equal(planByArrival(model, "wd", 22 * 60, travelFor(model, "2026-11-02")).ok, false);
 });
 
 test("วางแผนย้อนจากเวลาถึงปลายทาง", () => {
-  const r = planByTarget(model, "wd", 17 * 60, { min: 20, max: 25 });
+  const r = planByTarget(model, "wd", 17 * 60, travelFor(model, "2026-11-02"));
   assert.ok(r.ok);
   assert.ok(r.safeArrive! <= r.typicalArrive!);
-  assert.ok(r.safeArrive! + r.safeWait! <= r.latestDeparture);
+  const dep = r.safeArrive! + r.safeWait!;
+  assert.ok(dep + travelAt(model, "2026-11-02", dep).hi <= 17 * 60);
 });
 
 test("แยกวันธรรมดา/สุดสัปดาห์", () => {
   assert.equal(dayTypeOf("2026-11-01"), "we"); // อาทิตย์
   assert.equal(dayTypeOf("2026-11-02"), "wd"); // จันทร์
+});
+
+test("เวลาเดินทางอยู่ในช่วง 10–30 นาที และสมเหตุสมผลตามช่วงเวลา", () => {
+  for (const d of ["2026-11-02", "2026-11-06", "2026-11-07"])
+    for (let m = 6 * 60; m < 21 * 60; m += 10) {
+      const t = travelAt(model, d, m);
+      assert.ok(10 <= t.lo && t.lo <= t.mid && t.mid <= t.hi && t.hi <= 30, `${d} ${m}`);
+    }
+  const mon = (h: number) => travelAt(model, "2026-11-02", h * 60).mid;
+  assert.ok(mon(8) > mon(10.5) && mon(17) > mon(13.5)); // ชั่วโมงเร่งด่วนนานกว่ากลางวัน
+  assert.ok(travelAt(model, "2026-11-06", 17 * 60).mid >= mon(17)); // ศุกร์เย็นไม่น้อยกว่าวันอื่น
+  assert.ok(travelAt(model, "2026-11-07", 8 * 60).mid < mon(8)); // เสาร์เช้าโล่งกว่า
+});
+
+test("วางแผนตามเวลาถึง: ถึงปลายทางหลังรถออก", () => {
+  const r = planByArrival(model, "wd", 8 * 60, travelFor(model, "2026-11-02"));
+  assert.ok(r.ok);
+  assert.ok(r.arrive!.mid - r.depart!.mid === r.travel!.mid);
 });

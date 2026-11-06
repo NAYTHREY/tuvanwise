@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 import type { Model } from "@/lib/model";
-import { TRAVEL, thaiShortDate } from "@/lib/config";
+import { thaiShortDate } from "@/lib/config";
 import { ColumnChart, type Column } from "./Charts";
 
 const pct = (x: number) => `${(x * 100).toFixed(0)}%`;
@@ -36,10 +36,21 @@ export function DataView({ model }: { model: Model }) {
       status: bt.coverage >= 0.8 ? "ผ่าน" : "ไม่ผ่าน",
       how: "ข้อมูลภาคสนามจดเวลาเป็นช่วง 5 นาที จึงเผื่อ ±2.5 นาที",
     },
+    ...(bt.forward
+      ? [
+          {
+            name: "ทายเดือนใหม่ที่ระบบไม่เคยเห็น",
+            target: "≤ 5 นาที",
+            result: `${one(bt.forward.mae)} นาที · คลาดไม่เกิน 5 นาที ${pct(bt.forward.within5)}`,
+            status: (bt.forward.mae <= 5 ? "ผ่าน" : "ไม่ผ่าน") as Status,
+            how: `สร้างจากข้อมูล ${thaiShortDate(bt.forward.trainFrom)}–${thaiShortDate(bt.forward.trainTo)} แล้วทาย ${bt.forward.n.toLocaleString()} รอบของ ${thaiShortDate(bt.forward.testFrom)}–${thaiShortDate(bt.forward.testTo)}`,
+          },
+        ]
+      : []),
     {
       name: "ความคลาดเคลื่อนเวลาเดินทาง",
       target: "≤ 5 นาที",
-      result: m.travelMeasured ? `${m.travelMeasured} รอบที่มีข้อมูล` : "ยังไม่มีข้อมูลเวลาถึงปลายทาง",
+      result: m.travelMeasured ? `${m.travelMeasured} รอบที่มีข้อมูล` : `ยังไม่ได้วัด ใช้ค่าประมาณ ${model.travel.min}–${model.travel.max} นาทีตามช่วงเวลา`,
       status: "รอทดลองจริง",
       how: "กดปุ่ม “ถึงแล้ว” ในส่วน “นับคน / คิว” ดูผลที่ “รอบรถวันนี้”",
     },
@@ -186,7 +197,8 @@ export function DataView({ model }: { model: Model }) {
               แล้วเลือกค่าที่น้อยกว่า
             </Li>
             <Li n={4} t="บวกเวลาเดินทางเป็นเวลาถึงปลายทาง">
-              ตอนนี้ใช้ {TRAVEL.min}–{TRAVEL.max} นาทีจากการสัมภาษณ์ เพราะยังไม่มีข้อมูลวัดจริง
+              ใช้ค่าประมาณ {model.travel.min}–{model.travel.max} นาทีตามช่วงเวลา: วันธรรมดาติดช่วงเช้าและเย็น วันศุกร์เย็นติดที่สุด
+              เสาร์–อาทิตย์ติดช่วงบ่ายแถวห้าง (ยังไม่ได้วัดจริง)
             </Li>
           </ol>
           <p className="mt-4 rounded-xl bg-surface-2 p-3 text-sm">
@@ -201,8 +213,15 @@ export function DataView({ model }: { model: Model }) {
         <section className="panel p-5" aria-labelledby="limit-title">
           <h2 id="limit-title" className="font-display text-xl font-semibold">ข้อจำกัดที่ควรรู้</h2>
           <ul className="mt-3 list-disc space-y-2 pl-5 text-sm">
-            <li>ข้อมูลมีเฉพาะเดือนกันยายน ยังไม่ครอบคลุมช่วงสอบ ปิดเทอม หรือฝึกงานปลายภาค ที่เจ้าหน้าที่บอกว่าคนเยอะ</li>
-            <li>ไม่มีชีตของวันที่ 19, 26, 27 และ 28 ก.ย.</li>
+            <li>ข้อมูลมีเดือนกันยายนและตุลาคม ยังไม่ครอบคลุมช่วงสอบ ปิดเทอม หรือฝึกงานปลายภาค ที่เจ้าหน้าที่บอกว่าคนเยอะ</li>
+            <li>ไม่มีข้อมูลวันที่ 19, 26, 27, 28 ก.ย. และ 1, 13, 14 ต.ค.</li>
+            {model.conditions
+              .filter((c) => c.excluded)
+              .map((c) => (
+                <li key={c.label}>
+                  {c.label} ({c.days.map(thaiShortDate).join(", ")}): รอเฉลี่ย {one(c.mean)} นาที เป็นงานพิเศษ จึงไม่นำมาสร้างตัวทำนาย
+                </li>
+              ))}
             <li>เวลาในข้อมูลส่วนใหญ่จดทีละ 5 นาที ตัวเลขที่แสดงจึงละเอียดได้ประมาณนั้น</li>
             {model.conditions
               .filter((c) => c.label.startsWith("ฝน"))
@@ -212,7 +231,7 @@ export function DataView({ model }: { model: Model }) {
                   ข้อมูลน้อยเกินกว่าจะนำมาปรับการทำนาย
                 </li>
               ))}
-            <li>คอลัมน์เวลารถถึงปลายทางยังว่าง เวลาถึงฟิวเจอร์พาร์คจึงเป็นค่าประมาณ จนกว่าจะเก็บผ่านปุ่ม “ถึงแล้ว”</li>
+            <li>ยังไม่ได้วัดเวลารถถึงปลายทางจริง เวลาถึงฟิวเจอร์พาร์คจึงเป็นค่าประมาณตามสภาพจราจร จนกว่าจะเก็บผ่านปุ่ม “ถึงแล้ว”</li>
             <li>ใครมีลิงก์ก็เช็กอินได้ แม้ไม่ได้อยู่ที่ท่ารถ ระบบกันได้แค่เช็กอินซ้ำจากเครื่องเดิม</li>
           </ul>
         </section>

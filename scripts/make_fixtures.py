@@ -2,7 +2,7 @@
 import sys, json
 sys.path.insert(0, 'scripts')
 import build_model as bm
-rows, _ = bm.load_rows(sys.argv[1])
+rows, _, _ = bm.load_rows(sys.argv[1:-1])
 m = bm.fit(rows)
 cases = []
 for t in ('wd', 'we'):
@@ -10,5 +10,5 @@ for t in ('wd', 'we'):
         for elapsed, n in ((0, 1), (3, 4), (8, 10), (12, 12), (25, 2), (2, 13)):
             lo, mid, hi, sample = bm.predict(m, t, bm.slot(start), elapsed, n)
             cases.append(dict(type=t, start=start, elapsed=elapsed, n=n, lo=lo, mid=mid, hi=hi, sample=sample))
-json.dump(cases, open(sys.argv[2], 'w'), indent=0)
+json.dump(cases, open(sys.argv[-1], 'w'), indent=0)
 print(len(cases), 'cases')

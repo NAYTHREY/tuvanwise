@@ -2,11 +2,11 @@
 
 import { useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
-import { MODEL, PLACES, TRAVEL } from "@/lib/config";
+import { MODEL, PLACES } from "@/lib/config";
 import { deviceId, errorText, type Backend, type Conn } from "@/lib/backend";
 import { useQueue } from "@/lib/useQueue";
 import { SEATS, bkkDateISO, bkkMidnight, bkkMinute, clockOf, estimateNext, type Estimate, type QueueEvent, type QueueState } from "@/lib/queue";
-import { dayTypeOf, fmtClock, getSlot, inService, planByArrival, planByTarget, predict, slotLabel, slotOf, type DayType } from "@/lib/model";
+import { dayTypeOf, fmtClock, getSlot, inService, planByArrival, planByTarget, predict, slotLabel, slotOf, travelAt, travelFor, type DayType } from "@/lib/model";
 import { ColumnChart, type Column } from "./Charts";
 import { Logo } from "./Logo";
 
@@ -166,7 +166,7 @@ function NextVan({ est, state, events, now, ready }: { est: Estimate; state: Que
         <p id="next-title" className="text-sm text-board-dim">ตอนนี้นอกเวลาที่ระบบติดตามคิว</p>
         <p className="board-digits mt-1 text-[44px] leading-tight">เริ่ม {fmtClock(OPEN_MIN)} {o.today ? "วันนี้" : "พรุ่งนี้"}</p>
         <p className="mt-3 text-[15px] text-[#e7e9ee]">
-          ไปถึงคิวตอน 07:00 รถน่าจะออกราว {fmtClock(firstDep)} ถึงฟิวเจอร์พาร์คราว {fmtClock(firstDep + TRAVEL.min)}
+          ไปถึงคิวตอน 07:00 รถน่าจะออกราว {fmtClock(firstDep)} ถึงฟิวเจอร์พาร์คราว {fmtClock(firstDep + travelAt(MODEL, bkkDateISO(o.at), firstDep).mid)}
         </p>
         <p className="mt-1 text-sm text-board-dim">ช่วงเช้าคนน้อย รถมักรอครบ 20 นาทีก่อนออก</p>
       </section>
@@ -247,6 +247,7 @@ function Journey({ est, now }: { est: Estimate; now: number }) {
   const arriveAt = live ? now : o.at;
   const dep: number | null = live ? est.depMid : firstDep;
   const wait = Math.max(0, Math.round((dep - arriveAt) / MIN));
+  const tr = travelAt(MODEL, bkkDateISO(dep), bkkMinute(dep));
   const rows: { t: string; title: string; note: string }[] = [
     { t: clockOf(arriveAt), title: `ถึงคิวที่ ${PLACES.origin.name}`, note: "ต่อคิวรถตู้สายฟิวเจอร์พาร์ค" },
     {
@@ -255,9 +256,9 @@ function Journey({ est, now }: { est: Estimate; now: number }) {
       note: `รอราว ${wait} นาที · ออกเมื่อเต็ม 13 ที่ หรือรอครบ 20 นาที`,
     },
     {
-      t: clockOf(dep + TRAVEL.min * MIN),
+      t: clockOf(dep + tr.mid * MIN),
       title: `ถึง ${PLACES.destination.name}`,
-      note: `นั่งรถ ${TRAVEL.min}–${TRAVEL.max} นาที ไม่จอดรับระหว่างทาง`,
+      note: `นั่งรถราว ${tr.lo}–${tr.hi} นาทีตามสภาพจราจรช่วงนี้ ไม่จอดรับระหว่างทาง`,
     },
   ];
   return (
@@ -364,7 +365,7 @@ function Checkin({ backend, state, now, highlight }: { backend: Backend | null; 
   } else if (myTrip) {
     body = (
       <p className="font-semibold">
-        รถของคุณออก {clockOf(myTrip.depMs)} ถึงฟิวเจอร์พาร์คราว {clockOf(myTrip.depMs + TRAVEL.min * MIN)}
+        รถของคุณออก {clockOf(myTrip.depMs)} ถึงฟิวเจอร์พาร์คราว {clockOf(myTrip.depMs + travelAt(MODEL, bkkDateISO(myTrip.depMs), bkkMinute(myTrip.depMs)).mid * MIN)}
       </p>
     );
   } else {
@@ -456,11 +457,11 @@ function Plan({ nowMs }: { nowMs: number }) {
         </label>
       </div>
 
-      {mode === "target" ? <TargetResult type={type} targetMin={toMin(target)} /> : <ArriveResult type={type} arriveMin={toMin(arrive)} />}
+      {mode === "target" ? <TargetResult type={type} date={date} targetMin={toMin(target)} /> : <ArriveResult type={type} date={date} arriveMin={toMin(arrive)} />}
 
       <details className="mt-4 border-t border-line pt-3">
         <summary className="cursor-pointer text-sm font-semibold text-ink-2">เวลารอแต่ละช่วงของวัน</summary>
-        <WaitChart type={type} highlightMin={mode === "target" ? toMin(target) - TRAVEL.max : toMin(arrive)} />
+        <WaitChart type={type} highlightMin={mode === "target" ? toMin(target) - travelAt(MODEL, date, toMin(target)).hi : toMin(arrive)} />
       </details>
     </section>
   );
@@ -476,28 +477,28 @@ function Result({ label, time, note }: { label: string; time: string; note: stri
   );
 }
 
-function TargetResult({ type, targetMin }: { type: DayType; targetMin: number }) {
-  const r = planByTarget(MODEL, type, targetMin, TRAVEL);
+function TargetResult({ type, date, targetMin }: { type: DayType; date: string; targetMin: number }) {
+  const r = planByTarget(MODEL, type, targetMin, travelFor(MODEL, date));
   if (!r.ok) return <p className="mt-4 rounded-xl bg-surface-2 p-4 text-sm">ช่วงเวลานี้ไม่มีข้อมูล ระบบทำนายได้ช่วง 07:00–20:00</p>;
   return (
     <Result
       label="ควรถึงคิวรถไม่เกิน"
       time={fmtClock(floor5(r.safeArrive!))}
-      note={`เผื่อเวลารอและเดินทางแล้ว (นั่งรถ ${TRAVEL.min}–${TRAVEL.max} นาที)`}
+      note={`เผื่อเวลารอและเดินทางแล้ว (ช่วงนั้นนั่งรถราว ${r.travel!.lo}–${r.travel!.hi} นาที)`}
     />
   );
 }
 
-function ArriveResult({ type, arriveMin }: { type: DayType; arriveMin: number }) {
-  const r = planByArrival(MODEL, type, arriveMin, TRAVEL);
+function ArriveResult({ type, date, arriveMin }: { type: DayType; date: string; arriveMin: number }) {
+  const r = planByArrival(MODEL, type, arriveMin, travelFor(MODEL, date));
   if (!r.ok) return <p className="mt-4 rounded-xl bg-surface-2 p-4 text-sm">ช่วงเวลานี้ไม่มีข้อมูล ระบบทำนายได้ช่วง 07:00–20:00</p>;
   const cap = ceil5m(arriveMin + 20);
   const dep = Math.min(ceil5m(r.depart!.mid), cap);
   return (
     <Result
       label="ถึงฟิวเจอร์พาร์คราว"
-      time={fmtClock(dep + TRAVEL.min)}
-      note={`รถน่าจะออก ${fmtClock(dep)} · นั่งรถ ${TRAVEL.min}–${TRAVEL.max} นาที`}
+      time={fmtClock(dep + travelAt(MODEL, date, dep).mid)}
+      note={`รถน่าจะออก ${fmtClock(dep)} · นั่งรถราว ${travelAt(MODEL, date, dep).lo}–${travelAt(MODEL, date, dep).hi} นาที`}
     />
   );
 }

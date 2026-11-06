@@ -1,5 +1,6 @@
-"""สร้าง model.json สำหรับเว็บ TU vanwise จากไฟล์ TSE100_main.xlsx
-ใช้: python3 build_model.py <TSE100_main.xlsx> <output model.json>
+"""สร้าง model.json สำหรับเว็บ TU vanwise จากไฟล์ Excel ที่เก็บข้อมูลภาคสนาม (ก.ย. + ต.ค. 2569)
+ใช้: python3 build_model.py <xlsx> [<xlsx> ...] <output model.json>
+ชีตรายวันชื่อแบบ 1sep, 29SEP, 17oct (ไม่สนตัวพิมพ์เล็กใหญ่/ช่องว่าง)
 """
 import sys, re, json, math, datetime as dt, statistics as st
 from collections import defaultdict, Counter
@@ -12,6 +13,33 @@ MIN_N = 5                     # ข้อมูลน้อยกว่านี
 DAYS_TH = ['จันทร์','อังคาร','พุธ','พฤหัสบดี','ศุกร์','เสาร์','อาทิตย์']
 QS = (0.1, 0.5, 0.9)
 RATIO_QS = {'lo': 0.1, 'mid': 0.75, 'hi': 0.9}
+MONTHS = {'sep': 9, 'oct': 10}
+# วันที่มีงานพิเศษ ไม่ใช่การเดินรถปกติ → ไม่ใช้สร้างตัวทำนาย (ยังแสดงในหัวข้อ "สภาพอื่น")
+EXCLUDE_CONDITIONS = ('openhouse',)
+
+# ---- เวลาเดินทาง ท่ารถ มธ. → ฟิวเจอร์พาร์ค (นาที) ----
+# ยังไม่มีข้อมูลวัดจริง จึงใช้ค่าประมาณตามสภาพจราจรจริงของถนนพหลโยธิน ช่วงรังสิต (จำกัดไว้ 10–30 นาที)
+#   วันธรรมดา: ติดช่วงเข้างาน 07:00–09:00 และเลิกงาน 16:00–19:00, กลางวันโล่ง
+#   วันศุกร์: เย็นติดหนักกว่าวันธรรมดาอื่น (คนกลับบ้าน/ออกต่างจังหวัด)
+#   เสาร์–อาทิตย์: เช้าโล่ง บ่ายถึงเย็นติดแถวห้าง
+# ค่าในตาราง = ค่ากลางของแต่ละช่วงครึ่งชั่วโมง เริ่ม 07:00 ถึง 19:30
+TRAVEL_MIN, TRAVEL_MAX = 10, 30
+TRAVEL_MID = {
+    'wd':  [22, 26, 28, 25, 20, 17, 15, 14, 15, 17, 18, 17, 15, 14, 15, 16, 18, 20, 23, 26, 28, 28, 26, 22, 18, 15],
+    'fri': [22, 26, 28, 25, 20, 17, 15, 14, 15, 17, 18, 17, 15, 14, 15, 17, 20, 22, 26, 29, 30, 30, 29, 25, 20, 17],
+    'we':  [12, 12, 13, 13, 14, 15, 16, 17, 18, 19, 20, 20, 21, 21, 21, 22, 22, 23, 24, 24, 24, 23, 21, 19, 16, 14],
+}
+
+def travel_profile():
+    out = {}
+    for k, mids in TRAVEL_MID.items():
+        assert len(mids) == LAST_SLOT - FIRST_SLOT + 1
+        out[k] = [dict(slot=FIRST_SLOT + i,
+                       lo=max(TRAVEL_MIN, mid - max(3, round(mid * 0.15))),
+                       mid=mid,
+                       hi=min(TRAVEL_MAX, mid + max(3, round(mid * 0.2))))
+                  for i, mid in enumerate(mids)]
+    return out
 
 def q(v, p):
     if not v: return None
@@ -24,28 +52,39 @@ def fix_time(x):
     if isinstance(x, dt.datetime): return x.time()
     return x
 
-def load_rows(path):
-    wb = load_workbook(path, data_only=True)
-    rows, skipped = [], []
-    for ws in wb.worksheets:
-        m = re.fullmatch(r'\s*(\d+)\s*sep\s*', ws.title, re.I)
-        if not m: continue
-        date = dt.date(2026, 9, int(m.group(1)))
-        for r in range(5, ws.max_row + 1):
-            v = [ws.cell(r, c).value for c in range(1, 14)]
-            route, start, dep, arr, pax, cond = v[1], fix_time(v[2]), fix_time(v[3]), fix_time(v[4]), v[5], v[7]
-            if start is None and dep is None: continue
-            if isinstance(route, str) and route.startswith('ตัวอย่าง'): continue
-            if not isinstance(start, dt.time) or not isinstance(dep, dt.time):
-                skipped.append(f'{ws.title.strip()} แถว {r}: เวลาไม่ถูกต้อง'); continue
-            s = start.hour * 60 + start.minute; d = dep.hour * 60 + dep.minute
-            wait = d - s
-            if wait < 0 or wait > 120:
-                skipped.append(f'{ws.title.strip()} แถว {r}: เวลารอ {wait} นาที'); continue
-            rows.append(dict(date=date.isoformat(), weekday=date.weekday(), start=s, dep=d, wait=wait,
-                             pax=pax if isinstance(pax, (int, float)) else None,
-                             cond=cond, arr=arr.strftime('%H:%M') if isinstance(arr, dt.time) else None))
-    return rows, skipped
+def mins(t): return t.hour * 60 + t.minute
+
+def load_rows(paths):
+    rows, skipped, excluded = [], [], []
+    for path in paths:
+        wb = load_workbook(path, data_only=True)
+        for ws in wb.worksheets:
+            m = re.fullmatch(r'\s*(\d+)\s*([a-z]+)\s*', ws.title, re.I)
+            if not m or m.group(2).lower() not in MONTHS: continue
+            date = dt.date(2026, MONTHS[m.group(2).lower()], int(m.group(1)))
+            for r in range(5, ws.max_row + 1):
+                v = [ws.cell(r, c).value for c in range(1, 14)]
+                route, start, dep, arr, pax, cond = v[1], fix_time(v[2]), fix_time(v[3]), fix_time(v[4]), v[5], v[7]
+                if start is None and dep is None: continue
+                if isinstance(route, str) and route.startswith('ตัวอย่าง'): continue
+                tag = f'{ws.title.strip()} แถว {r}'
+                # 17–21 ต.ค.: กรอกเลื่อนไปหนึ่งคอลัมน์ (เวลาคนแรกถึงคิวอยู่ช่องเวลารถออก, เวลารถออกอยู่ช่องถึงปลายทาง)
+                if start is None and isinstance(dep, dt.time) and isinstance(arr, dt.time):
+                    start, dep, arr = dep, arr, None
+                if not isinstance(start, dt.time) or not isinstance(dep, dt.time):
+                    skipped.append(f'{tag}: เวลาไม่ครบ'); continue
+                wait = mins(dep) - mins(start)
+                if wait < 0 or wait > 120:
+                    skipped.append(f'{tag}: เวลารอ {wait} นาที'); continue
+                row = dict(date=date.isoformat(), weekday=date.weekday(), start=mins(start), dep=mins(dep), wait=wait,
+                           pax=pax if isinstance(pax, (int, float)) else None,
+                           cond=cond if cond and cond != 'ปกติ' else None,
+                           arr=arr.strftime('%H:%M') if isinstance(arr, dt.time) else None)
+                if row['cond'] and any(x in str(row['cond']).lower().replace(' ', '') for x in EXCLUDE_CONDITIONS):
+                    excluded.append(row); continue
+                rows.append(row)
+    rows.sort(key=lambda r: (r['date'], r['start']))
+    return rows, skipped, excluded
 
 def dtype(r): return 'we' if r['weekday'] >= 5 else 'wd'
 def slot(m): return m // SLOT
@@ -104,10 +143,27 @@ def backtest(rows):
                              maeBaseline=st.mean(abs(x['base'] - x['actual']) for x in v))
                         for s, v in sorted(by_slot.items())])
 
-def main(src, out):
-    rows, skipped = load_rows(src)
+def forward_test(rows):
+    """ทดสอบกับข้อมูลที่ระบบไม่เคยเห็น: สร้างตัวทำนายจากเดือนก่อนหน้า แล้วทายทุกรอบของเดือนล่าสุด"""
+    last = max(r['date'][:7] for r in rows)
+    train = [r for r in rows if r['date'][:7] < last]; test = [r for r in rows if r['date'][:7] == last]
+    if not train or not test: return None
+    m = fit(train); base = st.mean(r['wait'] for r in train); res = []
+    for r in test:
+        lo, mid, hi, _ = predict(m, dtype(r), slot(r['start']))
+        res.append((r['wait'], mid, lo, hi))
+    return dict(trainFrom=min(r['date'] for r in train), trainTo=max(r['date'] for r in train),
+                testFrom=min(r['date'] for r in test), testTo=max(r['date'] for r in test),
+                n=len(res), days=len({r['date'] for r in test}),
+                mae=st.mean(abs(p - a) for a, p, _, _ in res), maeBaseline=st.mean(abs(base - a) for a, *_ in res),
+                within5=st.mean(abs(p - a) <= 5 for a, p, _, _ in res),
+                coverage=st.mean(lo - 2.5 <= a <= hi + 2.5 for a, _, lo, hi in res))
+
+def main(srcs, out):
+    rows, skipped, excluded = load_rows(srcs)
     m = fit(rows)
     bt = backtest(rows)
+    bt['forward'] = forward_test(rows)
     slots = {}
     for t in ('wd', 'we', 'all'):
         slots[t] = []
@@ -122,13 +178,17 @@ def main(src, out):
     weekday = [dict(day=DAYS_TH[i], days=len(wkdays[i]), n=len(wk[i]), mean=round(st.mean(wk[i]), 2)) for i in range(7) if wk[i]]
     nonfull = [r for r in rows if r['pax'] is not None and r['pax'] < SEATS]
     conds = defaultdict(list)
-    for r in rows:
+    for r in rows + excluded:
         if r['cond']: conds[r['cond']].append(r)
     model = dict(
-        meta=dict(source='TSE100_main.xlsx', route='ธรรมศาสตร์ รังสิต – ฟิวเจอร์พาร์ค รังสิต', seats=SEATS,
+        meta=dict(source=', '.join(p.split('/')[-1] for p in srcs), route='ธรรมศาสตร์ รังสิต – ฟิวเจอร์พาร์ค รังสิต', seats=SEATS,
                   slotMinutes=SLOT, firstSlot=FIRST_SLOT, lastSlot=LAST_SLOT, minN=MIN_N,
                   dateFrom=min(r['date'] for r in rows), dateTo=max(r['date'] for r in rows),
                   days=len({r['date'] for r in rows}), rows=len(rows), skipped=skipped,
+                  months={mo: dict(days=len({r['date'] for r in rows if r['date'][5:7] == f'{n:02d}'}),
+                                   rows=sum(r['date'][5:7] == f'{n:02d}' for r in rows))
+                          for mo, n in MONTHS.items()},
+                  excludedDays=sorted({r['date'] for r in excluded}), excludedRows=len(excluded),
                   daysByType=m['days'], ratio=m['ratio'],
                   fullShare=sum(r['pax'] == SEATS for r in rows) / len(rows),
                   nonFull=dict(n=len(nonfull), at20=sum(r['wait'] == 20 for r in nonfull)),
@@ -136,10 +196,15 @@ def main(src, out):
                   travelMeasured=sum(r['arr'] is not None for r in rows),
                   generated=dt.date.today().isoformat()),
         slots=slots, weekday=weekday, backtest=bt,
-        conditions=[dict(label=k, n=len(v), days=sorted({r['date'] for r in v}), mean=round(st.mean(r['wait'] for r in v), 2)) for k, v in conds.items()])
+        travel=dict(estimated=True, min=TRAVEL_MIN, max=TRAVEL_MAX,
+                    source='ประมาณตามสภาพจราจรถนนพหลโยธินช่วงรังสิต แยกวันธรรมดา/ศุกร์/เสาร์–อาทิตย์ ยังไม่ได้วัดจริง',
+                    profiles=travel_profile()),
+        conditions=[dict(label=k, n=len(v), days=sorted({r['date'] for r in v}), mean=round(st.mean(r['wait'] for r in v), 2),
+                         excluded=any(x in str(k).lower().replace(' ', '') for x in EXCLUDE_CONDITIONS)) for k, v in conds.items()])
     json.dump(model, open(out, 'w'), ensure_ascii=False, indent=1)
-    print(f"rows={len(rows)} skipped={len(skipped)} MAE={bt['mae']:.2f} base={bt['maeBaseline']:.2f} "
+    print(f"rows={len(rows)} days={model['meta']['days']} excluded={len(excluded)} skipped={len(skipped)} MAE={bt['mae']:.2f} base={bt['maeBaseline']:.2f} "
           f"impr={bt['improvement']:.1%} cov={bt['coverage']:.1%} strict={bt['coverageStrict']:.1%} width={bt['width']:.1f} ratio={m['ratio']}")
 
 if __name__ == '__main__':
-    main(sys.argv[1], sys.argv[2])
+    if len(sys.argv) < 3: sys.exit(__doc__)
+    main(sys.argv[1:-1], sys.argv[-1])

@@ -1,5 +1,5 @@
 # TU vanwise
- 
+
 เว็บแอปบอกเวลารถตู้ออก สาย **ธรรมศาสตร์ รังสิต → ฟิวเจอร์พาร์ค รังสิต** แบบเรียลไทม์
 โครงงานวิชา TSE100 กลุ่ม 25 คณะวิศวกรรมศาสตร์ มหาวิทยาลัยธรรมศาสตร์
 
@@ -48,9 +48,9 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJ...
 
 ## อัปเดตข้อมูล
 
-1. ดาวน์โหลด CSV จากหน้าทีมงาน → ต่อท้ายในชีตรายวันของ `data/TSE100_main.xlsx`
+1. ดาวน์โหลด CSV จากหน้าทีมงาน → ต่อท้ายในชีตรายวันของไฟล์เดือนนั้นใน `data/` (`TSE100_sep.xlsx`, `TSE100_oct.xlsx`)
 2. `pip install openpyxl` แล้ว `npm run model`
-3. `python3 scripts/make_fixtures.py data/TSE100_main.xlsx tests/fixtures.json` แล้ว `npm test`
+3. `python3 scripts/make_fixtures.py data/TSE100_sep.xlsx data/TSE100_oct.xlsx tests/fixtures.json` แล้ว `npm test`
 
 ค่าที่แก้เองใน `src/lib/config.ts`: `TRAVEL` (เวลาเดินทาง ตอนนี้ 20–25 นาทีจากการสัมภาษณ์) และ `PLACES` (พิกัดท่ารถ ตอนนี้ประมาณ)
 

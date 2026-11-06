@@ -338,7 +338,7 @@ function Trips({ state, now }: { state: QueueState; now: number }) {
             </table>
           </div>
         )}
-        <p className="mt-3 text-xs text-ink-3">CSV ใช้คอลัมน์เดียวกับชีตเก็บข้อมูล นำไปต่อท้าย TSE100_main.xlsx แล้วรัน npm run model เพื่ออัปเดตตัวทำนาย</p>
+        <p className="mt-3 text-xs text-ink-3">CSV ใช้คอลัมน์เดียวกับชีตเก็บข้อมูล นำไปต่อท้ายไฟล์ Excel ของเดือนนั้นในโฟลเดอร์ data แล้วรัน npm run model เพื่ออัปเดตตัวทำนาย</p>
       </section>
     </div>
   );

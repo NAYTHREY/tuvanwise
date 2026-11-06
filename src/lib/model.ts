@@ -36,6 +36,9 @@ export interface Model {
     overallMean: number;
     travelMeasured: number;
     generated: string;
+    months?: Record<string, { days: number; rows: number }>;
+    excludedDays?: string[];
+    excludedRows?: number;
   };
   slots: Record<DayType, SlotStats[]>;
   weekday: { day: string; days: number; n: number; mean: number }[];
@@ -50,8 +53,40 @@ export interface Model {
     within5: number;
     width: number;
     bySlot: { slot: number; n: number; mae: number; maeBaseline: number }[];
+    forward?: {
+      trainFrom: string;
+      trainTo: string;
+      testFrom: string;
+      testTo: string;
+      n: number;
+      days: number;
+      mae: number;
+      maeBaseline: number;
+      within5: number;
+      coverage: number;
+    } | null;
   };
-  conditions: { label: string; n: number; days: string[]; mean: number }[];
+  travel: {
+    estimated: boolean;
+    min: number;
+    max: number;
+    source: string;
+    profiles: Record<TravelDay, TravelSlot[]>;
+  };
+  conditions: { label: string; n: number; days: string[]; mean: number; excluded?: boolean }[];
+}
+
+export type TravelDay = "wd" | "fri" | "we";
+export interface TravelSlot {
+  slot: number;
+  lo: number;
+  mid: number;
+  hi: number;
+}
+export interface Range {
+  lo: number;
+  mid: number;
+  hi: number;
 }
 
 export function quantile(sorted: number[], p: number): number | null {
@@ -156,72 +191,91 @@ export function predict(model: Model, type: DayType, startMin: number, elapsed =
   return { lo, mid, hi, sample: cond.length, usedType, slot, lam: stats.lam, driver, confidence };
 }
 
-export interface TravelConfig {
-  min: number;
-  max: number;
+export function travelDayOf(dateISO: string): TravelDay {
+  const w = weekdayOf(dateISO);
+  return w >= 5 ? "we" : w === 4 ? "fri" : "wd";
+}
+
+/** เวลาเดินทาง (นาที) ถ้ารถออกเวลา depMin ของวัน dateISO — นอกช่วงที่มีตาราง ใช้ช่องแรก/สุดท้าย */
+export function travelAt(model: Model, dateISO: string, depMin: number): Range {
+  const prof = model.travel.profiles[travelDayOf(dateISO)];
+  const s = Math.min(Math.max(slotOf(depMin, model.meta.slotMinutes), prof[0].slot), prof[prof.length - 1].slot);
+  const t = prof.find((p) => p.slot === s)!;
+  return { lo: t.lo, mid: t.mid, hi: t.hi };
+}
+
+/** ฟังก์ชันคืนเวลาเดินทางตามเวลารถออก (นาทีของวัน) */
+export type TravelFn = (depMin: number) => Range;
+
+export function travelFor(model: Model, dateISO: string): TravelFn {
+  return (depMin) => travelAt(model, dateISO, depMin);
 }
 
 export interface PlanResult {
   ok: boolean;
   reason?: string;
-  latestDeparture: number;
   safeArrive?: number;
   typicalArrive?: number;
   safeWait?: number;
   typicalWait?: number;
+  /** เวลาเดินทางของรถรอบที่แนะนำ (แบบเผื่อ) */
+  travel?: Range;
 }
 
-/** หาเวลาที่ควรไปถึงคิว เพื่อให้ถึงปลายทางทันเวลาเป้าหมาย */
-export function planByTarget(model: Model, type: DayType, targetMin: number, travel: TravelConfig): PlanResult {
-  const latestDeparture = targetMin - travel.max;
-  const find = (q: "q50" | "q90") => {
-    for (let a = Math.floor(latestDeparture); a >= latestDeparture - 180; a--) {
+/** หาเวลาที่ควรไปถึงคิว เพื่อให้ถึงปลายทางทันเวลาเป้าหมาย (เวลาเดินทางเปลี่ยนตามเวลารถออก) */
+export function planByTarget(model: Model, type: DayType, targetMin: number, travel: TravelFn): PlanResult {
+  const find = (q: "q50" | "q90", t: "mid" | "hi") => {
+    for (let a = Math.floor(targetMin - model.travel.min); a >= targetMin - 240; a--) {
       if (!inService(model, a)) continue;
       const got = getSlot(model, type, slotOf(a, model.meta.slotMinutes));
       const w = got?.stats[q];
       if (w == null) continue;
-      if (a + w <= latestDeparture) return { arrive: a, wait: w };
+      const dep = a + w;
+      if (dep + travel(dep)[t] <= targetMin) return { arrive: a, wait: w, travel: travel(dep) };
     }
     return null;
   };
-  const safe = find("q90");
-  const typical = find("q50");
+  const safe = find("q90", "hi");
+  const typical = find("q50", "mid");
   if (!safe || !typical) {
-    return { ok: false, reason: "ช่วงเวลานี้อยู่นอกช่วงที่มีข้อมูล (รถออกระหว่าง 07:00–20:00)", latestDeparture };
+    return { ok: false, reason: "ช่วงเวลานี้อยู่นอกช่วงที่มีข้อมูล (รถออกระหว่าง 07:00–20:00)" };
   }
   return {
     ok: true,
-    latestDeparture,
     safeArrive: safe.arrive,
     safeWait: safe.wait,
     typicalArrive: typical.arrive,
     typicalWait: typical.wait,
+    travel: safe.travel,
   };
 }
 
 export interface ForwardPlan {
   ok: boolean;
   reason?: string;
-  wait?: { lo: number; mid: number; hi: number };
-  depart?: { lo: number; mid: number; hi: number };
-  arrive?: { lo: number; mid: number; hi: number };
+  wait?: Range;
+  depart?: Range;
+  arrive?: Range;
+  travel?: Range;
   sample?: number;
   confidence?: Confidence;
 }
 
 /** ถ้าไปถึงคิวเวลา arriveMin จะได้ออกและถึงปลายทางเมื่อไร */
-export function planByArrival(model: Model, type: DayType, arriveMin: number, travel: TravelConfig): ForwardPlan {
+export function planByArrival(model: Model, type: DayType, arriveMin: number, travel: TravelFn): ForwardPlan {
   if (!inService(model, arriveMin)) {
     return { ok: false, reason: "เวลานี้อยู่นอกช่วงที่มีข้อมูล (07:00–20:00)" };
   }
   const p = predict(model, type, arriveMin, 0, 1);
   if (!p) return { ok: false, reason: "ไม่มีข้อมูลของช่วงเวลานี้" };
-  const travelMid = (travel.min + travel.max) / 2;
+  const depart = { lo: arriveMin + p.lo, mid: arriveMin + p.mid, hi: arriveMin + p.hi };
+  const t = travel(depart.mid);
   return {
     ok: true,
     wait: { lo: p.lo, mid: p.mid, hi: p.hi },
-    depart: { lo: arriveMin + p.lo, mid: arriveMin + p.mid, hi: arriveMin + p.hi },
-    arrive: { lo: arriveMin + p.lo + travel.min, mid: arriveMin + p.mid + travelMid, hi: arriveMin + p.hi + travel.max },
+    depart,
+    arrive: { lo: depart.lo + travel(depart.lo).lo, mid: depart.mid + t.mid, hi: depart.hi + travel(depart.hi).hi },
+    travel: t,
     sample: p.sample,
     confidence: p.confidence,
   };

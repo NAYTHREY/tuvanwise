@@ -9,7 +9,7 @@
     "start": "npx serve out",
     "lint": "tsc --noEmit",
     "test": "node --experimental-strip-types --test tests/*.test.ts",
-    "model": "python3 scripts/build_model.py data/TSE100_main.xlsx src/data/model.json"
+    "model": "python3 scripts/build_model.py data/TSE100_sep.xlsx data/TSE100_oct.xlsx src/data/model.json"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.118.0",
